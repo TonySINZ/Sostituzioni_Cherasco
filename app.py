@@ -187,7 +187,7 @@ if assenti_selezionati:
                 # Mostriamo almeno le prime 2 opzioni prioritarie richieste
                 opzioni_top = proposte_ordinate[:2]
 
-                for i, opzione in enumerate(opzioni_top, 1leukin):
+                for i, opzione in enumerate(opzioni_top, 1):
                     st.write(
                         f"&nbsp;&nbsp;&nbsp;&nbsp;*{i}*️⃣ **{opzione['docente']}** — {opzione['motivo']}"
                     )
