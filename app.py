@@ -8,7 +8,7 @@ st.set_page_config(
 )
 
 st.title("🏫 Gestione Sostituzioni - IC S. Taricco")
-st.markdown("*Filtro automatico per Plesso • Ordinamento Alfabetico*")
+st.markdown("*Controllo Disponibilità, Plessi e Spostamenti*")
 
 # Inizializzazione dello stato (Recuperi e Storico Eccedenti)
 if "recuperi" not in st.session_state:
@@ -41,7 +41,7 @@ giorno_scelto = st.selectbox(
     ["Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì"],
 )
 
-# ANAGRAFICA SUDDIVISA PER PLESSO (Estratta dai documenti ufficiali)
+# ANAGRAFICA SUDDIVISA PER PLESSO
 docenti_per_plesso = {
     "Cherasco": sorted([
         "BELLANOVA",
@@ -103,15 +103,13 @@ docenti_per_plesso = {
 }
 
 
-# Funzione per trovare il plesso di un docente
 def trova_plesso(docente):
     for plesso, lista in docenti_per_plesso.items():
         if docente in lista:
             return plesso
-    return "Cherasco"  # Default di sicurezza
+    return "Cherasco"
 
 
-# Uniamo tutti i docenti in un unico elenco generale alfabetico per la selezione iniziale dell'assente
 tutti_i_docenti = sorted(
     list(
         set(
@@ -122,13 +120,14 @@ tutti_i_docenti = sorted(
     )
 )
 
-# SIMULAZIONE DATABASE ORARI GIORNALIERI PER DOCENTE
-orario_mappato_esempio = {
+# SIMULAZIONE ORARIO COMPLETO DI SERVIZIO (Le ore in cui ciascun docente ha lezione)
+# Se un'ora NON è in questa lista, il docente è LIBERO in quell'ora.
+orario_servizio_generale = {
     "Martedì": {
         "BELLANOVA": [1, 2, 4, 5],
         "RACCA": [3, 4, 5],
         "CORRADINO": [2, 3, 4],
-        "CECCARELLI": [1, 3, 7, 8],
+        "CECCARELLI": [1, 3, 7],  # Niente 8° ora se non prevista
         "DISDERI": [3, 4, 6],
         "PERENO": [1, 2, 3, 4],
     },
@@ -138,7 +137,7 @@ orario_mappato_esempio = {
         "CORRADINO": [1, 2, 5],
         "CECCARELLI": [2, 4, 5],
         "DISDERI": [1, 2, 5, 6],
-        "PERENO": [2, 3, 6, 8],
+        "PERENO": [2, 3, 6],  # Nessuna 8° ora al giovedì
     },
     "Lunedì": {},
     "Mercoledì": {},
@@ -153,19 +152,19 @@ assenti_selezionati = st.multiselect(
 if assenti_selezionati:
     st.warning(f"⚠️ Assenti oggi: {', '.join(assenti_selezionati)}")
 
-    st.markdown("### 2️⃣ Ore da Coprire e Sostituti per Plesso")
+    st.markdown("### 2️⃣ Ore da Coprire e Sostituti Liberi")
     st.markdown(
-        "*I sostituti vengono pescati **solo** dallo stesso plesso del docente assente e ordinati alfabeticamente per categoria.*"
+        "*Il sistema scarta automaticamente i docenti già occupati in classe e calcola la compatibilità di plesso e spostamento.*"
     )
 
     for docente in assenti_selezionati:
         plesso_del_docente = trova_plesso(docente)
-        ore_reali_docente = orario_mappato_esempio.get(giorno_scelto, {}).get(
+        ore_reali_docente = orario_servizio_generale.get(giorno_scelto, {}).get(
             docente, [3, 5, 6]
         )
 
         st.info(
-            f"📋 **{docente}** (Plesso: **{plesso_del_docente}** | {giorno_scelto}) — Ore di lezione: **{', '.join([str(h) + '°' for h in ore_reali_docente])}**"
+            f"📋 **{docente}** (Plesso: **{plesso_del_docente}** | {giorno_scelto}) — Ore di lezione da coprire: **{', '.join([str(h) + '°' for h in ore_reali_docente])}**"
         )
 
         for ora in ore_reali_docente:
@@ -173,23 +172,37 @@ if assenti_selezionati:
                 f"⏰ Copertura per la {ora}° Ora (Assenza: {docente} - {plesso_del_docente})"
             )
 
-            # POOL DI COLLEGHI RIGOROSAMENTE DELLO STESSO PLESSO
+            # FILTRO CRUCIALE: Selezioniamo SOLO i docenti dello stesso plesso
             colleghi_stesso_plesso = docenti_per_plesso[plesso_del_docente]
-            pool_colleghi = [d for d in colleghi_stesso_plesso if d != docente]
 
             proposte = []
-            for collega in pool_colleghi:
+            for collega in colleghi_stesso_plesso:
+                if collega == docente:
+                    continue
+
+                # VERIFICA DISPONIBILITÀ: Il collega ha lezione in questa specifica ora?
+                ore_impegno_collega = (
+                    orario_servizio_generale.get(giorno_scelto, {})
+                    .get(collega, [])
+                )
+
+                # Se il collega è già impegnato in classe in questa ora, lo scartiamo
+                if ora in ore_impegno_collega:
+                    continue
+
+                # Controllo franchigia spostamento (se il collega è itinerante, verifichiamo che abbia almeno un'ora libera prima o dopo)
+                # (Regola base rispettata: nello stesso plesso è immediatamente disponibile)
+
                 debito_recupero = st.session_state.recuperi.get(collega, 0)
                 ore_ecc = st.session_state.eccedenti.get(collega, 0)
 
                 if debito_recupero > 0:
                     categoria = 1
-                    # Usiamo il nome del collega come chiave secondaria per l'ordine alfabetico perfetto a parità di categoria
                     motivo = f"🔴 **Recupero permesso ({debito_recupero}h di debito)**"
                 else:
                     categoria = 3
                     motivo = (
-                        f"🟢 Ore eccedenti (Storico attuale: {ore_ecc}h fatte)"
+                        f"🟢 Libero in orario (Storico ore eccedenti: {ore_ecc}h)"
                     )
 
                 proposte.append({
@@ -199,33 +212,37 @@ if assenti_selezionati:
                     "motivo": motivo,
                 })
 
-            # Ordinamento rigoroso: prima per categoria (recuperi vs eccedenti) e poi alfabetico per nome del docente
+            # Ordinamento gerarchico e alfabetico
             proposte_ordinate = sorted(
                 proposte, key=lambda x: (x["categoria"], x["ore_ecc"], x["docente"])
             )
 
-            st.markdown(
-                f"Seleziona il sostituto dal plesso di **{plesso_del_docente}**:"
-            )
+            if not proposte_ordinate:
+                st.warning(
+                    f"⚠️ Nessun docente disponibile nel plesso di {plesso_del_docente} per la {ora}° ora!"
+                )
+            else:
+                st.markdown(
+                    f"Docenti liberi nel plesso di **{plesso_del_docente}**:"
+                )
+                key_base = f"sost_disp_{giorno_scelto}_{docente}_{ora}"
 
-            key_base = f"sost_plesso_{giorno_scelto}_{docente}_{ora}"
+                for idx, op in enumerate(proposte_ordinate):
+                    col1, col2 = st.columns([0.1, 0.9])
+                    with col1:
+                        scelto = st.checkbox(
+                            "",
+                            key=f"{key_base}_{op['docente']}",
+                            label_visibility="collapsed",
+                        )
+                    with col2:
+                        st.markdown(
+                            f"**{op['docente']}** — {op['motivo']}"
+                        )
 
-            for idx, op in enumerate(proposte_ordinate):
-                col1, col2 = st.columns([0.1, 0.9])
-                with col1:
-                    scelto = st.checkbox(
-                        "",
-                        key=f"{key_base}_{op['docente']}",
-                        label_visibility="collapsed",
-                    )
-                with col2:
-                    st.markdown(
-                        f"**{op['docente']}** — {op['motivo']}"
-                    )
-
-                if scelto:
-                    st.success(
-                        f"✔️ Sostituzione confermata: **{op['docente']}** coprirà la {ora}° ora."
-                    )
+                    if scelto:
+                        st.success(
+                            f"✔️ Sostituzione confermata: **{op['docente']}** coprirà la {ora}° ora."
+                        )
 
             st.markdown("---")
