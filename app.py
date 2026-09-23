@@ -8,7 +8,7 @@ st.set_page_config(
 )
 
 st.title("🏫 Gestione Sostituzioni - IC S. Taricco")
-st.markdown("*Cherasco • Narzole • Roreto*")
+st.markdown("*Elenco Generale Unificato (Ordine Alfabetico)*")
 
 # Inizializzazione dello stato (Recuperi e Storico Eccedenti)
 if "recuperi" not in st.session_state:
@@ -18,6 +18,8 @@ if "recuperi" not in st.session_state:
         "CORRADINO": 1,
         "CECCARELLI": 0,
         "DISDERI": 3,
+        "PIUMATTI": 1,
+        "TRUNFIO": 0,
     }
 
 if "eccedenti" not in st.session_state:
@@ -27,130 +29,132 @@ if "eccedenti" not in st.session_state:
         "CORRADINO": 0,
         "CECCARELLI": 2,
         "DISDERI": 1,
+        "PIUMATTI": 2,
+        "TRUNFIO": 0,
     }
-
-# Storico delle sostituzioni effettuate oggi
-if "sostituzioni_oggi" not in st.session_state:
-    st.session_state.sostituzioni_oggi = {}
 
 st.divider()
 
-# Selezione Plesso e Giorno
-plesso_scelto = st.selectbox(
-    "📍 Seleziona il Plesso:", ["Cherasco", "Narzole", "Roreto"]
-)
+# 1. SELEZIONE GIORNO
 giorno_scelto = st.selectbox(
-    "📅 Giorno:", ["Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì"]
+    "📅 Giorno della settimana:",
+    ["Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì"],
 )
 
-# Anagrafica docenti per plesso (campione di test basato sui PDF)
-docenti_per_plesso = {
-    "Cherasco": [
-        "BELLANOVA",
-        "CAVALLO",
-        "RACCA",
-        "PINTABONA",
-        "DEMAGISTRIS",
-        "FISSORE",
-        "RESTAGNO",
-        "SIMONE",
-        "CORRADINO",
-        "MAUNERO",
-        "BARICALLA",
-        "SARTIRANO",
-        "FERRIGNO",
-        "VARALDO",
-        "MORRA",
-        "DADONE",
-        "MARCHELLO",
-        "MARKU",
-        "MANZONE",
-        "PERENO",
-        "BARALE",
-    ],
-    "Narzole": [
-        "CECCARELLI",
-        "BARALE",
-        "POLLICINO",
-        "GARASSINO",
-        "RICCARDI",
-        "MACCHIONE",
-        "COSTANTINO",
-        "CONTERNO",
-        "SCALAS",
-        "GAETA",
-        "FALCO",
-        "MARENGO",
-    ],
-    "Roreto": [
-        "DISDERI",
-        "TRUNFIO",
-        "RUOTOLO",
-        "NIGRO",
-        "DEVALLE",
-        "DADONE",
-        "TEALDI",
-        "PIUMATTI",
-        "MODICA",
-        "IACUBIN",
-        "MARCHEL",
-        "MILANO",
-        "AMASIO",
-        "BENEDET",
-        "MANZON",
-        "CAVAGL",
-        "RUSSO",
-        "CAPRIOL",
-    ],
-}
+# ANAGRAFICA GENERALE UNIFICATA DI TUTTI I DOCENTI (Ordinata alfabeticamente)
+docenti_generali = [
+    "AMASIO",
+    "BARALE",
+    "BARICALLA",
+    "BELLANOVA",
+    "BENEDET",
+    "CAPRIOL",
+    "CAVAGL",
+    "CAVALLO",
+    "CECCARELLI",
+    "CONTERNO",
+    "CORRADINO",
+    "DADONE",
+    "DEMAGISTRIS",
+    "DEVALLE",
+    "DISDERI",
+    "FALCO",
+    "FERRIGNO",
+    "FISSORE",
+    "GAETA",
+    "GARASSINO",
+    "IACUBIN",
+    "MACCHIONE",
+    "MARENGO",
+    "MARCHEL",
+    "MARCHELLO",
+    "MARKU",
+    "MANZONE",
+    "MILANO",
+    "MODICA",
+    "MORRA",
+    "NIGRO",
+    "PERENO",
+    "PIUMATTI",
+    "PINTABONA",
+    "POLLICINO",
+    "RACCA",
+    "RESTAGNO",
+    "RICCARDI",
+    "RUOTOLO",
+    "RUSSO",
+    "SARTIRANO",
+    "SIMONE",
+    "TEALDI",
+    "TRUNFIO",
+    "VARALDO",
+]
 
-docenti_disponibili_plesso = docenti_per_plesso.get(plesso_scelto, [])
+# Assicuriamoci che l'elenco sia rigorosamente in ordine alfabetico
+docenti_generali = sorted(list(set(docenti_generali)))
+
+# SIMULAZIONE DATABASE ORARI GIORNALIERI PER DOCENTE
+orario_mappato_esempio = {
+    "Martedì": {
+        "BELLANOVA": [1, 2, 4, 5],
+        "RACCA": [3, 4, 5],
+        "CORRADINO": [2, 3, 4],
+        "CECCARELLI": [1, 3, 7, 8],
+        "DISDERI": [3, 4, 6],
+    },
+    "Giovedì": {
+        "BELLANOVA": [1, 2, 3],
+        "RACCA": [1, 2, 3, 4],
+        "CORRADINO": [1, 2, 5],
+        "CECCARELLI": [2, 4, 5],
+        "DISDERI": [1, 2, 5, 6],
+    },
+    "Lunedì": {},
+    "Mercoledì": {},
+    "Venerdì": {},
+}
 
 st.markdown("### 1️⃣ Inserisci i Docenti Assenti")
 assenti_selezionati = st.multiselect(
-    "Seleziona i docenti assenti oggi in questo plesso:",
-    docenti_disponibili_plesso,
+    "Seleziona i docenti assenti oggi (elenco generale alfabetico):",
+    docenti_generali,
 )
 
 if assenti_selezionati:
     st.warning(f"⚠️ Assenti oggi: {', '.join(assenti_selezionati)}")
 
-    st.markdown("### 2️⃣ Elenco Proposte Gerarchiche e Assegnazione")
+    st.markdown("### 2️⃣ Ore da Coprire e Gestione Sostituzioni")
     st.markdown(
-        "*Scala di priorità:* 🔴 **Recuperi permessi** ➡️ 🟡 **Ore a disposizione** ➡️ 🟢 **Ore eccedenti (rotazione)**"
+        "*Il sistema mostra le ore reali in cui ciascun docente assente ha lezione.*"
     )
 
-    # Simuliamo le ore da coprire (es. 1ª e 2ª ora)
-    ore_da_coprire = [1, 2]
-
     for docente in assenti_selezionati:
-        st.info(f"📋 **Copertura per l'assenza di: {docente}**")
+        ore_reali_docente = orario_mappato_esempio.get(giorno_scelto, {}).get(
+            docente, [3, 5, 6]
+        )
 
-        for ora in ore_da_coprire:
-            st.subheader(f"⏰ {ora}° Ora di lezione")
+        st.info(
+            f"📋 **Assenza di {docente}** ({giorno_scelto}) — Ore di lezione previste: **{', '.join([str(h) + '°' for h in ore_reali_docente])}**"
+        )
 
-            # Escludiamo il docente assente dal pool dei soccorritori
-            pool_colleghi = [
-                d for d in docenti_disponibili_plesso if d != docente
-            ]
+        for ora in ore_reali_docente:
+            st.subheader(
+                f"⏰ Copertura per la {ora}° Ora (Assenza: {docente})"
+            )
+
+            # Pool di colleghi disponibili escludendo l'assente
+            pool_colleghi = [d for d in docenti_generali if d != docente]
 
             proposte = []
             for collega in pool_colleghi:
                 debito_recupero = st.session_state.recuperi.get(collega, 0)
                 ore_ecc = st.session_state.eccedenti.get(collega, 0)
 
-                # Definizione gerarchica del punteggio e della categoria
-                # Livello 1: Recupero permesso (priorità massima, score negativo)
-                # Livello 2: Ore a disposizione / Contemporaneità (score medio)
-                # Livello 3: Ore eccedenti (score basato sullo storico ore fatte)
                 if debito_recupero > 0:
                     categoria = 1
                     priorita_score = -50 - debito_recupero
-                    motivo = (
-                        f"🔴 **Recupero permesso da effettuare ({debito_recupero}h di debito)**"
-                    )
+                    motivo = f"🔴 **Recupero permesso ({debito_recupero}h di debito)**"
                 else:
-                    # Per ora consideriamo le eccedenti basate sullo storico
                     categoria = 3
                     priorita_score = ore_ecc
                     motivo = (
@@ -164,22 +168,17 @@ if assenti_selezionati:
                     "motivo": motivo,
                 })
 
-            # Ordinamento rigoroso per livello gerarchico e score
             proposte_ordinate = sorted(
                 proposte, key=lambda x: (x["categoria"], x["score"])
             )
 
-            # Mostriamo TUTTE le opzioni possibili con le spunte interattive
-            st.markdown(
-                "Seleziona il docente che effettuerà la sostituzione per questa ora:"
-            )
+            st.markdown("Seleziona il docente sostituto:")
 
-            key_base = f"sost_{plesso_scelto}_{docente}_{ora}"
+            key_base = f"sost_gen_{giorno_scelto}_{docente}_{ora}"
 
             for idx, op in enumerate(proposte_ordinate):
                 col1, col2 = st.columns([0.1, 0.9])
                 with col1:
-                    # Checkbox per confermare la scelta del sostituto
                     scelto = st.checkbox(
                         "",
                         key=f"{key_base}_{op['docente']}",
@@ -192,7 +191,7 @@ if assenti_selezionati:
 
                 if scelto:
                     st.success(
-                        f"✔️ Assegnato a **{op['docente']}** per la {ora}° ora."
+                        f"✔️ Sostituzione confermata: **{op['docente']}** coprirà la {ora}° ora."
                     )
 
             st.markdown("---")
