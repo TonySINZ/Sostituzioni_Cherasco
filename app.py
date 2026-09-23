@@ -7,22 +7,11 @@ st.set_page_config(
     layout="centered",
 )
 
-# Titolo dell'applicazione ottimizzato per smartphone
-st.title("🏫 Gestione Sostituzioni")
-st.markdown(
-    "*Istituto Comprensivo 'S. Taricco' - Cherasco, Narzole, Roreto*"
-)
+st.title("🏫 Gestione Sostituzioni - IC S. Taricco")
+st.markdown("*Cherasco • Narzole • Roreto*")
 
-# ---------------------------------------------------------
-# 1. SIMULAZIONE DATABASE ORARI E DOCENTI (I 3 PLESSI)
-# ---------------------------------------------------------
-# Nelle versioni successive questo potrà essere collegato a un foglio Google Sheets o Excel.
-# Per adesso strutturiamo la base dati logica per testare il sistema.
-
-
-# Inizializziamo lo "Storico" delle ore eccedenti e dei recuperi permessi in memoria di sessione
+# Inizializzazione dello stato (Recuperi e Storico Eccedenti)
 if "recuperi" not in st.session_state:
-    # Esempio: Docente -> Ore di permesso da recuperare (debito)
     st.session_state.recuperi = {
         "BELLANOVA": 2,
         "RACCA": 0,
@@ -32,7 +21,6 @@ if "recuperi" not in st.session_state:
     }
 
 if "eccedenti" not in st.session_state:
-    # Esempio: Docente -> Ore eccedenti già svolte (per la rotazione equa)
     st.session_state.eccedenti = {
         "BELLANOVA": 1,
         "RACCA": 3,
@@ -41,25 +29,17 @@ if "eccedenti" not in st.session_state:
         "DISDERI": 1,
     }
 
-
-# ---------------------------------------------------------
-# 2. SELEZIONE DEL PLESSO E GIORNO
-# ---------------------------------------------------------
 st.divider()
+
+# Selezione Plesso e Giorno
 plesso_scelto = st.selectbox(
     "📍 Seleziona il Plesso:", ["Cherasco", "Narzole", "Roreto"]
 )
 giorno_scelto = st.selectbox(
-    "📅 Giorno della settimana:",
-    ["Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì"],
+    "📅 Giorno:", ["Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì"]
 )
 
-st.subheader(f"Gestione Giornaliera - Plesso di {plesso_scelto}")
-
-# ---------------------------------------------------------
-# 3. ARCHIVIO SIMULATO DOCENTI PRESENTI NEL PLESSO
-# ---------------------------------------------------------
-# Elenco di esempio basato sui plessi analizzati (da estendere liberamente)
+# Anagrafica docenti per plesso
 docenti_per_plesso = {
     "Cherasco": [
         "BELLANOVA",
@@ -122,53 +102,52 @@ docenti_per_plesso = {
 
 docenti_disponibili_plesso = docenti_per_plesso.get(plesso_scelto, [])
 
-# ---------------------------------------------------------
-# 4. INSERIMENTO ASSENZE DA SMARTPHONE
-# ---------------------------------------------------------
 st.markdown("### 1️⃣ Inserisci i Docenti Assenti")
 assenti_selezionati = st.multiselect(
-    "Seleziona i docenti assenti oggi in questo plesso:",
-    docenti_disponibili_plesso,
+    "Seleziona i docenti assenti oggi:", docenti_disponibili_plesso
 )
 
-# Simulazione orario giornaliero delle classi da coprire per i docenti assenti
-# (In una versione avanzata il sistema leggerà l'ora esatta dal PDF/Excel dell'orario)
 if assenti_selezionati:
-    st.warning(f"⚠️ Docenti assenti oggi: {', '.join(assenti_selezionati)}")
+    st.warning(f"⚠️ Assenti oggi: {', '.join(assenti_selezionati)}")
 
-    st.markdown("### 2️⃣ Generazione Proposte di Sostituzione")
-    st.markdown(
-        "*Il sistema calcola automaticamente la scala di priorità:* **1. Recuperi permessi** ➡️ **2. Ore a disposizione** ➡️ **3. Ore eccedenti (minore storico)**"
-    )
+    st.markdown("### 2️⃣ Proposte di Sostituzione (con rotazione e priorità)")
 
-    if st.button("🔍 Trova Sostituzioni Ottimali", type="primary"):
+    if st.button("🔍 Genera Sostituzioni", type="primary"):
+        # Teniamo traccia dei docenti già assegnati in questa elaborazione per evitare doppioni consecutivi
+        gia_assegnati_oggi = set()
+
+        # Simuliamo le ore da coprire (es. 1ª, 2ª e 3ª ora)
+        ore_da_coprire = [1, 2, 3]
+
         for docente in assenti_selezionati:
             st.info(f"📋 **Copertura per assenza di: {docente}**")
-
-            # Simuliamo le ore da coprire (es. 1ª e 2ª ora)
-            ore_da_coprire = [1, 2]
 
             for ora in ore_da_coprire:
                 st.markdown(f"**⏰ {ora}° Ora di lezione:**")
 
-                # FILTRAGGIO E ORDINAMENTO DELLA SCALA DI PRIORITÀ NEL PLESSO:
-                # Escludiamo il docente assente dal pool dei soccorritori
                 pool_colleghi = [
-                    d for d in docenti_disponibili_plesso if d != docente
+                    d
+                    for d in docenti_disponibili_plesso
+                    if d != docente and d not in gia_assegnati_oggi
                 ]
 
-                # Creazione di una classifica fittizia ma coerente con le regole stabilite:
+                # Se per caso finiamo i docenti puliti, ripeschiamo dall'intero plesso tranne l'assente
+                if not pool_colleghi:
+                    pool_colleghi = [
+                        d for d in docenti_disponibili_plesso if d != docente
+                    ]
+
                 proposte = []
                 for collega in pool_colleghi:
                     debito_recupero = st.session_state.recuperi.get(collega, 0)
                     ore_ecc = st.session_state.eccedenti.get(collega, 0)
 
-                    # Assegnazione del punteggio di priorità (più basso è prioritario)
-                    # Se ha debito di recupero -> priorità altissima (punteggio -10 o -20)
-                    # Se non ha recupero -> conta quante ore eccedenti ha fatto (meno ne ha, prima viene scelto)
+                    # Scala di priorità:
+                    # 1. Chi ha debito di recupero (priorità massima)
+                    # 2. Chi ha meno ore eccedenti (rotazione equa)
                     if debito_recupero > 0:
-                        priorita_score = -10 - debito_recupero
-                        motivo = f"🔴 **Da recuperare ({debito_recupero}h di permesso)**"
+                        priorita_score = -20 - debito_recupero
+                        motivo = f"🔴 **Recupero permesso ({debito_recupero}h)**"
                     else:
                         priorita_score = ore_ecc
                         motivo = (
@@ -181,32 +160,17 @@ if assenti_selezionati:
                         "motivo": motivo,
                     })
 
-                # Ordiniamo per priorità
+                # Ordinamento per priorità
                 proposte_ordinate = sorted(proposte, key=lambda x: x["score"])
 
-                # Mostriamo almeno le prime 2 opzioni prioritarie richieste
+                # Prendiamo le prime 2 alternative diverse
                 opzioni_top = proposte_ordinate[:2]
 
                 for i, opzione in enumerate(opzioni_top, 1):
                     st.write(
                         f"&nbsp;&nbsp;&nbsp;&nbsp;*{i}*️⃣ **{opzione['docente']}** — {opzione['motivo']}"
                     )
+                    # Registriamo il docente scelto per penalizzarlo nelle ore successive della stessa giornata
+                    gia_assegnati_oggi.add(opzione["docente"])
 
                 st.markdown("---")
-
-# ---------------------------------------------------------
-# 5. SEZIONE DI CONTROLLO RAPIDO (STATO DEBITI/CREDITI)
-# ---------------------------------------------------------
-with st.expander("📊 Visualizza stato Recuperi e Ore Eccedenti del Plesso"):
-    st.markdown("### Situazione Debiti di Recupero Permessi")
-    df_rec = pd.DataFrame(
-        list(st.session_state.recuperi.items()), columns=["Docente", "Ore Debito"]
-    )
-    st.dataframe(df_rec, hide_index=True)
-
-    st.markdown("### Storico Ore Eccedenti")
-    df_ecc = pd.DataFrame(
-        list(st.session_state.eccedenti.items()),
-        columns=["Docente", "Ore Eccedenti Fatte"],
-    )
-    st.dataframe(df_ecc, hide_index=True)
