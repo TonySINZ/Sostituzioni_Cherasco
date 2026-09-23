@@ -8,7 +8,7 @@ st.set_page_config(
 )
 
 st.title("🏫 Gestione Sostituzioni - IC S. Taricco")
-st.markdown("*Elenco Generale Unificato (Ordine Alfabetico)*")
+st.markdown("*Filtro automatico per Plesso • Ordinamento Alfabetico*")
 
 # Inizializzazione dello stato (Recuperi e Storico Eccedenti)
 if "recuperi" not in st.session_state:
@@ -18,8 +18,8 @@ if "recuperi" not in st.session_state:
         "CORRADINO": 1,
         "CECCARELLI": 0,
         "DISDERI": 3,
+        "PERENO": 1,
         "PIUMATTI": 1,
-        "TRUNFIO": 0,
     }
 
 if "eccedenti" not in st.session_state:
@@ -29,8 +29,8 @@ if "eccedenti" not in st.session_state:
         "CORRADINO": 0,
         "CECCARELLI": 2,
         "DISDERI": 1,
+        "PERENO": 0,
         "PIUMATTI": 2,
-        "TRUNFIO": 0,
     }
 
 st.divider()
@@ -41,57 +41,86 @@ giorno_scelto = st.selectbox(
     ["Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì"],
 )
 
-# ANAGRAFICA GENERALE UNIFICATA DI TUTTI I DOCENTI (Ordinata alfabeticamente)
-docenti_generali = [
-    "AMASIO",
-    "BARALE",
-    "BARICALLA",
-    "BELLANOVA",
-    "BENEDET",
-    "CAPRIOL",
-    "CAVAGL",
-    "CAVALLO",
-    "CECCARELLI",
-    "CONTERNO",
-    "CORRADINO",
-    "DADONE",
-    "DEMAGISTRIS",
-    "DEVALLE",
-    "DISDERI",
-    "FALCO",
-    "FERRIGNO",
-    "FISSORE",
-    "GAETA",
-    "GARASSINO",
-    "IACUBIN",
-    "MACCHIONE",
-    "MARENGO",
-    "MARCHEL",
-    "MARCHELLO",
-    "MARKU",
-    "MANZONE",
-    "MILANO",
-    "MODICA",
-    "MORRA",
-    "NIGRO",
-    "PERENO",
-    "PIUMATTI",
-    "PINTABONA",
-    "POLLICINO",
-    "RACCA",
-    "RESTAGNO",
-    "RICCARDI",
-    "RUOTOLO",
-    "RUSSO",
-    "SARTIRANO",
-    "SIMONE",
-    "TEALDI",
-    "TRUNFIO",
-    "VARALDO",
-]
+# ANAGRAFICA SUDDIVISA PER PLESSO (Estratta dai documenti ufficiali)
+docenti_per_plesso = {
+    "Cherasco": sorted([
+        "BELLANOVA",
+        "CAVALLO",
+        "RACCA",
+        "PINTABONA",
+        "DEMAGISTRIS",
+        "FISSORE",
+        "RESTAGNO",
+        "SIMONE",
+        "CORRADINO",
+        "MAUNERO",
+        "BARICALLA",
+        "SARTIRANO",
+        "FERRIGNO",
+        "VARALDO",
+        "MORRA",
+        "DADONE",
+        "MARCHELLO",
+        "MARKU",
+        "MANZONE",
+        "PERENO",
+        "BARALE",
+    ]),
+    "Narzole": sorted([
+        "CECCARELLI",
+        "BARALE",
+        "POLLICINO",
+        "GARASSINO",
+        "RICCARDI",
+        "MACCHIONE",
+        "COSTANTINO",
+        "CONTERNO",
+        "SCALAS",
+        "GAETA",
+        "FALCO",
+        "MARENGO",
+    ]),
+    "Roreto": sorted([
+        "DISDERI",
+        "TRUNFIO",
+        "RUOTOLO",
+        "NIGRO",
+        "DEVALLE",
+        "DADONE",
+        "TEALDI",
+        "PIUMATTI",
+        "MODICA",
+        "IACUBIN",
+        "MARCHEL",
+        "MILANO",
+        "AMASIO",
+        "BENEDET",
+        "MANZON",
+        "CAVAGL",
+        "RUSSO",
+        "CAPRIOL",
+    ]),
+}
 
-# Assicuriamoci che l'elenco sia rigorosamente in ordine alfabetico
-docenti_generali = sorted(list(set(docenti_generali)))
+
+# Funzione per trovare il plesso di un docente
+def trova_plesso(docente):
+    for plesso, lista in docenti_per_plesso.items():
+        if docente in lista:
+            return plesso
+    return "Cherasco"  # Default di sicurezza
+
+
+# Uniamo tutti i docenti in un unico elenco generale alfabetico per la selezione iniziale dell'assente
+tutti_i_docenti = sorted(
+    list(
+        set(
+            docenti_per_plesso["Cherasco"]
+            + docenti_per_plesso["Narzole"]
+            + docenti_per_plesso["Roreto"]
+        )
+    )
+)
 
 # SIMULAZIONE DATABASE ORARI GIORNALIERI PER DOCENTE
 orario_mappato_esempio = {
@@ -101,6 +130,7 @@ orario_mappato_esempio = {
         "CORRADINO": [2, 3, 4],
         "CECCARELLI": [1, 3, 7, 8],
         "DISDERI": [3, 4, 6],
+        "PERENO": [1, 2, 3, 4],
     },
     "Giovedì": {
         "BELLANOVA": [1, 2, 3],
@@ -108,6 +138,7 @@ orario_mappato_esempio = {
         "CORRADINO": [1, 2, 5],
         "CECCARELLI": [2, 4, 5],
         "DISDERI": [1, 2, 5, 6],
+        "PERENO": [2, 3, 6, 8],
     },
     "Lunedì": {},
     "Mercoledì": {},
@@ -116,34 +147,35 @@ orario_mappato_esempio = {
 
 st.markdown("### 1️⃣ Inserisci i Docenti Assenti")
 assenti_selezionati = st.multiselect(
-    "Seleziona i docenti assenti oggi (elenco generale alfabetico):",
-    docenti_generali,
+    "Seleziona i docenti assenti oggi:", tutti_i_docenti
 )
 
 if assenti_selezionati:
     st.warning(f"⚠️ Assenti oggi: {', '.join(assenti_selezionati)}")
 
-    st.markdown("### 2️⃣ Ore da Coprire e Gestione Sostituzioni")
+    st.markdown("### 2️⃣ Ore da Coprire e Sostituti per Plesso")
     st.markdown(
-        "*Il sistema mostra le ore reali in cui ciascun docente assente ha lezione.*"
+        "*I sostituti vengono pescati **solo** dallo stesso plesso del docente assente e ordinati alfabeticamente per categoria.*"
     )
 
     for docente in assenti_selezionati:
+        plesso_del_docente = trova_plesso(docente)
         ore_reali_docente = orario_mappato_esempio.get(giorno_scelto, {}).get(
             docente, [3, 5, 6]
         )
 
         st.info(
-            f"📋 **Assenza di {docente}** ({giorno_scelto}) — Ore di lezione previste: **{', '.join([str(h) + '°' for h in ore_reali_docente])}**"
+            f"📋 **{docente}** (Plesso: **{plesso_del_docente}** | {giorno_scelto}) — Ore di lezione: **{', '.join([str(h) + '°' for h in ore_reali_docente])}**"
         )
 
         for ora in ore_reali_docente:
             st.subheader(
-                f"⏰ Copertura per la {ora}° Ora (Assenza: {docente})"
+                f"⏰ Copertura per la {ora}° Ora (Assenza: {docente} - {plesso_del_docente})"
             )
 
-            # Pool di colleghi disponibili escludendo l'assente
-            pool_colleghi = [d for d in docenti_generali if d != docente]
+            # POOL DI COLLEGHI RIGOROSAMENTE DELLO STESSO PLESSO
+            colleghi_stesso_plesso = docenti_per_plesso[plesso_del_docente]
+            pool_colleghi = [d for d in colleghi_stesso_plesso if d != docente]
 
             proposte = []
             for collega in pool_colleghi:
@@ -152,11 +184,10 @@ if assenti_selezionati:
 
                 if debito_recupero > 0:
                     categoria = 1
-                    priorita_score = -50 - debito_recupero
+                    # Usiamo il nome del collega come chiave secondaria per l'ordine alfabetico perfetto a parità di categoria
                     motivo = f"🔴 **Recupero permesso ({debito_recupero}h di debito)**"
                 else:
                     categoria = 3
-                    priorita_score = ore_ecc
                     motivo = (
                         f"🟢 Ore eccedenti (Storico attuale: {ore_ecc}h fatte)"
                     )
@@ -164,17 +195,20 @@ if assenti_selezionati:
                 proposte.append({
                     "docente": collega,
                     "categoria": categoria,
-                    "score": priorita_score,
+                    "ore_ecc": ore_ecc,
                     "motivo": motivo,
                 })
 
+            # Ordinamento rigoroso: prima per categoria (recuperi vs eccedenti) e poi alfabetico per nome del docente
             proposte_ordinate = sorted(
-                proposte, key=lambda x: (x["categoria"], x["score"])
+                proposte, key=lambda x: (x["categoria"], x["ore_ecc"], x["docente"])
             )
 
-            st.markdown("Seleziona il docente sostituto:")
+            st.markdown(
+                f"Seleziona il sostituto dal plesso di **{plesso_del_docente}**:"
+            )
 
-            key_base = f"sost_gen_{giorno_scelto}_{docente}_{ora}"
+            key_base = f"sost_plesso_{giorno_scelto}_{docente}_{ora}"
 
             for idx, op in enumerate(proposte_ordinate):
                 col1, col2 = st.columns([0.1, 0.9])
