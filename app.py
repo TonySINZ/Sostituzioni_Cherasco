@@ -1,4 +1,5 @@
 import os
+import re
 import pandas as pd
 import pdfplumber
 import streamlit as st
@@ -12,12 +13,27 @@ st.title(
 )
 
 
-# --- 1. MOTORE DI PARSING UFFICIALE DEI PDF ---
+# --- 1. MOTORE DI PARSING UFFICIALE DEI PDF (CON FILTRO PULIZIA) ---
 @st.cache_data
 def estrai_orario_pdf(pdf_paths):
-  """Legge integralmente i PDF ufficiali ed estrae la matrice (Docente, Plesso, Giorno, Ora, Classe)."""
+  """Legge i PDF ufficiali ed estrae pulendo i falsi positivi della prima colonna."""
   database_orario = []
   giorni_standard = ["Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì"]
+  blacklist_termini = {
+      "LUNEDI",
+      "MARTEDI",
+      "MERCOLEDI",
+      "GIOVEDI",
+      "VENERDI",
+      "GIORNO",
+      "DOCENTE",
+      "ORARIO",
+      "ID",
+      "IDE",
+      "COD",
+      "PLESSO",
+      "CLASSE",
+  }
 
   for plesso, path in pdf_paths.items():
     if not os.path.exists(path):
@@ -31,18 +47,18 @@ def estrai_orario_pdf(pdf_paths):
               if not riga or all(not cella for cella in riga):
                 continue
               docente_raw = riga[0].strip() if riga[0] else ""
-              if not docente_raw or docente_raw.upper() in [
-                  "LUNEDI",
-                  "MARTEDI",
-                  "MERCOLEDI",
-                  "GIOVEDI",
-                  "VENERDI",
-                  "GIORNO",
-                  "DOCENTE",
-                  "ORARIO",
-              ]:
+              docente_upper = docente_raw.upper()
+
+              # Filtro severo: scarta righe vuote, codici corti, numeri o intestazioni
+              if (
+                  not docente_raw
+                  or len(docente_raw) < 3
+                  or docente_upper in blacklist_termini
+                  or re.match(r"^[\d\W_]+$", docente_raw)
+              ):
                 continue
-              docente = docente_raw.upper()
+
+              docente = docente_upper
 
               for idx_col, cella in enumerate(riga[1:], start=1):
                 if cella and cella.strip():
@@ -195,7 +211,6 @@ if not usa_filtro_puntuale:
       " dai tabulati dei plessi per questo docente."
   )
 
-  # Estrazione automatica delle ore in cui il docente assente ha lezione
   if not df_orario.empty and "Docente" in df_orario.columns:
     ore_docente_df = df_orario[
         (df_orario["Docente"] == docente_assente)
@@ -222,7 +237,6 @@ if not usa_filtro_puntuale:
           f"⏰ {ora_i}ª Ora — Classe: {classe_i} (Plesso: {plesso_i})",
           expanded=True,
       ):
-        # Individuazione docenti occupati in cattedra in quella stessa ora in tutto l'istituto
         docenti_occupati = set()
         if not df_orario.empty and "Ora" in df_orario.columns:
           occ_df = df_orario[
@@ -279,7 +293,6 @@ if not usa_filtro_puntuale:
             st.warning("Nessun docente disponibile in questa ora.")
 
 else:
-  # MODALITÀ PUNTUALE MANUALE
   st.subheader(
       f"📋 Gestione Supplenza Manuale: {docente_assente} | Classe:"
       f" {classe_selezionata} ({plesso_selezionato} | {giorno_selezionato} -"
