@@ -65,8 +65,12 @@ giorno_selezionato = st.sidebar.selectbox(
 )
 ora_selezionata = st.sidebar.slider("Ora di lezione da coprire", 1, 8, 1)
 
-# Elenco di esempio dei docenti dell'istituto con il loro stato dinamico (Categoria, Plesso d'origine, Storico)
-# In un'evoluzione futura questi dati potranno essere letti da un file Excel o di configurazione dedicato.
+# Selezione della classe in cui si verifica l'assenza
+classe_selezionata = st.sidebar.text_input(
+    "Classe (es. 1A, 2B, 3C)", value="1A"
+).upper()
+
+# Archivio docenti istituto suddiviso per logiche di database separate
 archivio_docenti_istituto = [
     {
         "nome": "BELLANOVA",
@@ -130,14 +134,8 @@ docente_assente = st.sidebar.selectbox(
 )
 
 
-# --- FUNZIONE DI ORDINAMENTO GERARCHICO IMPECCABILE ---
+# --- FUNZIONE DI ORDINAMENTO GERARCHICO ---
 def ordina_candidati_sostituzione(candidati_disponibili, plesso_assenza):
-  """Ordinamento multicriterio:
-
-  1. Categoria (Recupero -> Disp. Plesso -> Disp. Altro Plesso -> Extra)
-  2. Logistica Plesso (0 = stesso plesso, 1 = plesso diverso)
-  3. Storico sostituzioni (minor numero di ore fatte = priorità di equità)
-  """
   peso_categoria = {
       "Recupero": 1,
       "Disposizione Plesso": 2,
@@ -158,8 +156,9 @@ def ordina_candidati_sostituzione(candidati_disponibili, plesso_assenza):
 
 # --- CORPO PRINCIPALE ---
 st.subheader(
-    f"📋 Gestione Supplenza per: {docente_assente}"
-    f" ({plesso_selezionato} | {giorno_selezionato} - {ora_selezionata}ª Ora)"
+    f"📋 Gestione Supplenza per: {docente_assente} | Classe:"
+    f" {classe_selezionata} ({plesso_selezionato} | {giorno_selezionato} -"
+    f" {ora_selezionata}ª Ora)"
 )
 
 # Filtro rigoroso sui docenti occupati in classe nell'ora selezionata
@@ -171,20 +170,18 @@ if not df_orario.empty and "Giorno" in df_orario.columns:
       ]["Docente"].unique()
   )
 else:
-  # Simulazione di blocco per test se il DB tabulare non è ancora popolato
   docenti_occupati = {
       "PERENO",
       "BARALE",
   } if giorno_selezionato == "Giovedì" and ora_selezionata in [6, 7] else set()
 
-# Estrazione dei candidati idonei (escludendo l'assente e chi è occupato in classe)
+# Estrazione dei candidati idonei
 candidati_validi = [
     d
     for d in archivio_docenti_istituto
     if d["nome"] != docente_assente and d["nome"] not in docenti_occupati
 ]
 
-# Applicazione dell'ordinamento gerarchico intelligente
 candidati_ordinati = ordina_candidati_sostituzione(
     candidati_validi, plesso_selezionato
 )
@@ -208,12 +205,11 @@ with col2:
   st.markdown("### ✅ Candidati Sostituti (Ordinamento Gerarchico)")
   st.caption(
       "Priorità: 1) Recuperi | 2) Disp. Plesso | 3) Disp. Altro Plesso | 4)"
-      " Extra (per equità di carico)"
+      " Extra"
   )
 
   if candidati_ordinati:
     for idx, cand in enumerate(candidati_ordinati, 1):
-      # Badge visivo per evidenziare la categoria e lo storico
       badge_colore = (
           "🟢"
           if cand["categoria"] == "Recupero"
@@ -230,8 +226,9 @@ with col2:
       with c_b:
         if st.button("Assegna", key=f"assegna_{cand['nome']}"):
           st.success(
-              f"Assegnazione confermata: **{cand['nome']}** sostituirà"
-              f" **{docente_assente}** ({ora_selezionata}ª ora)."
+              f"Assegnazione confermata: **{cand['nome']}** coprirà la classe"
+              f" **{classe_selezionata}** sostituendo **{docente_assente}**"
+              f" ({ora_selezionata}ª ora, plesso {plesso_selezionato})."
           )
   else:
     st.warning(
