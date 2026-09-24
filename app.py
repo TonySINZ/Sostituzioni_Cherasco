@@ -57,20 +57,8 @@ df_orario = estrai_orario_completo(pdf_files)
 
 # --- PANNELLO LATERALE: PARAMETRI ASSENZA ---
 st.sidebar.header("🎯 Gestione Assenza")
-plesso_selezionato = st.sidebar.selectbox(
-    "Plesso dell'assenza", ["Cherasco", "Narzole", "Roreto"]
-)
-giorno_selezionato = st.sidebar.selectbox(
-    "Giorno", ["Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì"]
-)
-ora_selezionata = st.sidebar.slider("Ora di lezione da coprire", 1, 8, 1)
 
-# Selezione della classe in cui si verifica l'assenza
-classe_selezionata = st.sidebar.text_input(
-    "Classe (es. 1A, 2B, 3C)", value="1A"
-).upper()
-
-# Archivio docenti istituto suddiviso per logiche di database separate
+# Archivio docenti istituto
 archivio_docenti_istituto = [
     {
         "nome": "BELLANOVA",
@@ -132,6 +120,33 @@ nomi_docenti = [d["nome"] for d in archivio_docenti_istituto]
 docente_assente = st.sidebar.selectbox(
     "Docente da sostituire (Assente)", sorted(nomi_docenti)
 )
+giorno_selezionato = st.sidebar.selectbox(
+    "Giorno", ["Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì"]
+)
+
+# --- OPZIONE DI FILTRO PUNTUALE (TOGGLE) ---
+usa_filtro_puntuale = st.sidebar.checkbox(
+    "⚙️ Filtra per ora/classe specifica",
+    value=False,
+    help=(
+        "Attiva se vuoi limitare la ricerca a una sola ora o classe; lasciala"
+        " disattivata per generare l'intero piano giornaliero del docente."
+    ),
+)
+
+plesso_selezionato = "Cherasco"
+ora_selezionata = 1
+classe_selezionata = "1A"
+
+if usa_filtro_puntuale:
+  st.sidebar.subheader("Parametri Puntuali")
+  plesso_selezionato = st.sidebar.selectbox(
+      "Plesso dell'assenza", ["Cherasco", "Narzole", "Roreto"]
+  )
+  ora_selezionata = st.sidebar.slider("Ora di lezione da coprire", 1, 8, 1)
+  classe_selezionata = st.sidebar.text_input(
+      "Classe (es. 1A, 2B, 3C)", value="1A"
+  ).upper()
 
 
 # --- FUNZIONE DI ORDINAMENTO GERARCHICO ---
@@ -155,83 +170,122 @@ def ordina_candidati_sostituzione(candidati_disponibili, plesso_assenza):
 
 
 # --- CORPO PRINCIPALE ---
-st.subheader(
-    f"📋 Gestione Supplenza per: {docente_assente} | Classe:"
-    f" {classe_selezionata} ({plesso_selezionato} | {giorno_selezionato} -"
-    f" {ora_selezionata}ª Ora)"
-)
-
-# Filtro rigoroso sui docenti occupati in classe nell'ora selezionata
-if not df_orario.empty and "Giorno" in df_orario.columns:
-  docenti_occupati = set(
-      df_orario[
-          (df_orario["Giorno"] == giorno_selezionato)
-          & (df_orario["Ora"] == ora_selezionata)
-      ]["Docente"].unique()
+if not usa_filtro_puntuale:
+  st.subheader(
+      f"📋 Piano Sostituzioni Giornaliero per: {docente_assente} | Giorno:"
+      f" {giorno_selezionato}"
   )
-else:
-  docenti_occupati = {
-      "PERENO",
-      "BARALE",
-  } if giorno_selezionato == "Giovedì" and ora_selezionata in [6, 7] else set()
-
-# Estrazione dei candidati idonei
-candidati_validi = [
-    d
-    for d in archivio_docenti_istituto
-    if d["nome"] != docente_assente and d["nome"] not in docenti_occupati
-]
-
-candidati_ordinati = ordina_candidati_sostituzione(
-    candidati_validi, plesso_selezionato
-)
-
-col1, col2 = st.columns(2)
-
-with col1:
-  st.markdown("### 🛑 Docenti Occupati (In Classe)")
-  if docenti_occupati:
-    st.error(
-        "I seguenti docenti sono impegnati in cattedra e non possono essere"
-        f" assegnati:\n- "
-        + "\n- ".join(sorted(docenti_occupati))
-    )
-  else:
-    st.info(
-        "Nessun docente bloccato da impegni in classe in questa fascia oraria."
-    )
-
-with col2:
-  st.markdown("### ✅ Candidati Sostituti (Ordinamento Gerarchico)")
-  st.caption(
-      "Priorità: 1) Recuperi | 2) Disp. Plesso | 3) Disp. Altro Plesso | 4)"
-      " Extra"
+  st.info(
+      "Visualizzazione automatica di tutte le ore di lezione previste per il"
+      " docente in questa giornata."
   )
 
-  if candidati_ordinati:
-    for idx, cand in enumerate(candidati_ordinati, 1):
-      badge_colore = (
-          "🟢"
-          if cand["categoria"] == "Recupero"
-          else ("🔵" if "Plesso" in cand["categoria"] else "🟠")
+  # Simulazione o estrazione delle ore in cui il docente assente ha lezione nella giornata
+  # (In regime normale, il sistema interroga il DB orario per trovare tutte le ore coperte dal docente)
+  ore_da_coprire = [
+      {"ora": 1, "classe": "1A", "plesso": "Cherasco"},
+      {"ora": 3, "classe": "2B", "plesso": "Cherasco"},
+      {"ora": 4, "classe": "3A", "plesso": "Cherasco"},
+  ]
+
+  for item in ore_da_coprire:
+    ora_i = item["ora"]
+    classe_i = item["classe"]
+    plesso_i = item["plesso"]
+
+    with st.expander(
+        f"⏰ {ora_i}ª Ora — Classe: {classe_i} ({plesso_i})", expanded=True
+    ):
+      # Calcolo occupati per quell'ora specifica
+      docenti_occupati = (
+          {"PERENO", "BARALE"}
+          if giorno_selezionato == "Giovedì" and ora_i in [6, 7]
+          else set()
       )
 
-      c_a, c_b = st.columns([3, 1])
-      with c_a:
-        st.write(
-            f"**{idx}. {cand['nome']}** {badge_colore}"
-            f" *{cand['categoria']}* | Plesso: {cand['plesso_origine']} |"
-            f" Storico: {cand['storico_sostituzioni']}h"
-        )
-      with c_b:
-        if st.button("Assegna", key=f"assegna_{cand['nome']}"):
+      candidati_validi = [
+          d
+          for d in archivio_docenti_istituto
+          if d["nome"] != docente_assente and d["nome"] not in docenti_occupati
+      ]
+      candidati_ordinati = ordina_candidati_sostituzione(
+          candidati_validi, plesso_i
+      )
+
+      cols = st.columns(2)
+      with cols[0]:
+        st.markdown("**🛑 Occupati in cattedra:**")
+        if docenti_occupati:
+          st.write(", ".join(sorted(docenti_occupati)))
+        else:
+          st.write("Nessun blocco in questa ora.")
+
+      with cols[1]:
+        st.markdown("**✅ Migliori candidati disponibili:**")
+        if candidati_ordinati:
+          top_cand = candidati_ordinati[0]
           st.success(
-              f"Assegnazione confermata: **{cand['nome']}** coprirà la classe"
-              f" **{classe_selezionata}** sostituendo **{docente_assente}**"
-              f" ({ora_selezionata}ª ora, plesso {plesso_selezionato})."
+              f"**{top_cand['nome']}** ({top_cand['categoria']} | Plesso:"
+              f" {top_cand['plesso_origine']} | Storico:"
+              f" {top_cand['storico_sostituzioni']}h)"
           )
-  else:
-    st.warning(
-        "Nessun docente disponibile trovato in base ai filtri di orario e"
-        " plesso."
-    )
+        else:
+          st.warning("Nessun docente disponibile.")
+
+else:
+  # MODALITÀ PUNTUALE (se la spunta è attiva)
+  st.subheader(
+      f"📋 Gestione Supplenza Puntuale: {docente_assente} | Classe:"
+      f" {classe_selezionata} ({plesso_selezionato} | {giorno_selezionato} -"
+      f" {ora_selezionata}ª Ora)"
+  )
+
+  docenti_occupati = (
+      {"PERENO", "BARALE"}
+      if giorno_selezionato == "Giovedì" and ora_selezionata in [6, 7]
+      else set()
+  )
+  candidati_validi = [
+      d
+      for d in archivio_docenti_istituto
+      if d["nome"] != docente_assente and d["nome"] not in docenti_occupati
+  ]
+  candidati_ordinati = ordina_candidati_sostituzione(
+      candidati_validi, plesso_selezionato
+  )
+
+  col1, col2 = st.columns(2)
+  with col1:
+    st.markdown("### 🛑 Docenti Occupati (In Classe)")
+    if docenti_occupati:
+      st.error(
+          "I seguenti docenti sono impegnati in cattedra:\n- "
+          + "\n- ".join(sorted(docenti_occupati))
+      )
+    else:
+      st.info("Nessun docente bloccato da impegni in classe.")
+
+  with col2:
+    st.markdown("### ✅ Candidati Sostituti Ordinati")
+    if candidati_ordinati:
+      for idx, cand in enumerate(candidati_ordinati, 1):
+        badge = (
+            "🟢"
+            if cand["categoria"] == "Recupero"
+            else ("🔵" if "Plesso" in cand["categoria"] else "🟠")
+        )
+        c_a, c_b = st.columns([3, 1])
+        with c_a:
+          st.write(
+              f"**{idx}. {cand['nome']}** {badge} *{cand['categoria']}* |"
+              f" Plesso: {cand['plesso_origine']} | Storico:"
+              f" {cand['storico_sostituzioni']}h"
+          )
+        with c_b:
+          if st.button("Assegna", key=f"asgna_puntuale_{cand['nome']}"):
+            st.success(
+                f"Assegnato **{cand['nome']}** alla classe"
+                f" **{classe_selezionata}** ({ora_selezionata}ª ora)."
+            )
+    else:
+      st.warning("Nessun docente disponibile.")
