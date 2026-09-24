@@ -65,55 +65,104 @@ giorno_selezionato = st.sidebar.selectbox(
 )
 ora_selezionata = st.sidebar.slider("Ora di lezione da coprire", 1, 8, 1)
 
-# Elenco unificato di tutti i docenti noti nell'istituto (estratto o mock di fallback)
-docenti_istituto = [
-    "BELLANOVA",
-    "CAVALLO",
-    "RACCA",
-    "PINTABONA",
-    "DEMAGISTRIS",
-    "FISSORE",
-    "RESTAGNO",
-    "SIMONE",
-    "CORRADINO",
-    "MAUNERO",
-    "SARTIRANO",
-    "VARALDO",
-    "PERENO",
-    "BARALE",
-    "CECCARELLI",
-    "POLLICINO",
-    "GARASSINO",
-    "RICCARDI",
-    "MACCHIONE",
-    "GAETA",
-    "COSTANTINO",
-    "MARENGO",
-    "FALCO",
-    "DISDERI",
-    "PIUMATTI",
-    "DADONE",
-    "FERRIG",
-    "MARCHEL",
-    "MILANO",
-    "AMASIO",
-    "IACUBIN",
-    "NIGRO",
-    "RUOTOLO",
-    "DEVALLE",
+# Elenco di esempio dei docenti dell'istituto con il loro stato dinamico (Categoria, Plesso d'origine, Storico)
+# In un'evoluzione futura questi dati potranno essere letti da un file Excel o di configurazione dedicato.
+archivio_docenti_istituto = [
+    {
+        "nome": "BELLANOVA",
+        "categoria": "Disposizione Plesso",
+        "plesso_origine": "Cherasco",
+        "storico_sostituzioni": 1,
+    },
+    {
+        "nome": "CAVALLO",
+        "categoria": "Extra",
+        "plesso_origine": "Cherasco",
+        "storico_sostituzioni": 3,
+    },
+    {
+        "nome": "RACCA",
+        "categoria": "Recupero",
+        "plesso_origine": "Cherasco",
+        "storico_sostituzioni": 0,
+    },
+    {
+        "nome": "PINTABONA",
+        "categoria": "Disposizione Altro Plesso",
+        "plesso_origine": "Narzole",
+        "storico_sostituzioni": 1,
+    },
+    {
+        "nome": "DEMAGISTRIS",
+        "categoria": "Extra",
+        "plesso_origine": "Cherasco",
+        "storico_sostituzioni": 2,
+    },
+    {
+        "nome": "FISSORE",
+        "categoria": "Disposizione Plesso",
+        "plesso_origine": "Roreto",
+        "storico_sostituzioni": 0,
+    },
+    {
+        "nome": "PERENO",
+        "categoria": "Extra",
+        "plesso_origine": "Cherasco",
+        "storico_sostituzioni": 4,
+    },
+    {
+        "nome": "BARALE",
+        "categoria": "Disposizione Plesso",
+        "plesso_origine": "Narzole",
+        "storico_sostituzioni": 1,
+    },
+    {
+        "nome": "CECCARELLI",
+        "categoria": "Recupero",
+        "plesso_origine": "Narzole",
+        "storico_sostituzioni": 2,
+    },
 ]
 
+nomi_docenti = [d["nome"] for d in archivio_docenti_istituto]
 docente_assente = st.sidebar.selectbox(
-    "Docente da sostituire (Assente)", sorted(docenti_istituto)
+    "Docente da sostituire (Assente)", sorted(nomi_docenti)
 )
+
+
+# --- FUNZIONE DI ORDINAMENTO GERARCHICO IMPECCABILE ---
+def ordina_candidati_sostituzione(candidati_disponibili, plesso_assenza):
+  """Ordinamento multicriterio:
+
+  1. Categoria (Recupero -> Disp. Plesso -> Disp. Altro Plesso -> Extra)
+  2. Logistica Plesso (0 = stesso plesso, 1 = plesso diverso)
+  3. Storico sostituzioni (minor numero di ore fatte = priorità di equità)
+  """
+  peso_categoria = {
+      "Recupero": 1,
+      "Disposizione Plesso": 2,
+      "Disposizione Altro Plesso": 3,
+      "Extra": 4,
+  }
+
+  def chiave_ordinamento(candidato):
+    p_cat = peso_categoria.get(candidato.get("categoria", "Extra"), 5)
+    p_plesso = (
+        0 if candidato.get("plesso_origine") == plesso_assenza else 1
+    )
+    storico = candidato.get("storico_sostituzioni", 0)
+    return (p_cat, p_plesso, storico)
+
+  return sorted(candidati_disponibili, key=chiave_ordinamento)
+
 
 # --- CORPO PRINCIPALE ---
 st.subheader(
-    f"📋 Proposta Sostituzione per: {docente_assente}"
+    f"📋 Gestione Supplenza per: {docente_assente}"
     f" ({plesso_selezionato} | {giorno_selezionato} - {ora_selezionata}ª Ora)"
 )
 
-# Filtro rigoroso: docenti occupati nell'ora e giorno selezionati in qualsiasi classe/plesso
+# Filtro rigoroso sui docenti occupati in classe nell'ora selezionata
 if not df_orario.empty and "Giorno" in df_orario.columns:
   docenti_occupati = set(
       df_orario[
@@ -122,18 +171,23 @@ if not df_orario.empty and "Giorno" in df_orario.columns:
       ]["Docente"].unique()
   )
 else:
-  # Esempio simulato di blocco se il DB tabulare è in fase di popolamento completo
+  # Simulazione di blocco per test se il DB tabulare non è ancora popolato
   docenti_occupati = {
       "PERENO",
       "BARALE",
   } if giorno_selezionato == "Giovedì" and ora_selezionata in [6, 7] else set()
 
-# Escludiamo l'assente e chi è già occupato in classe
-docenti_disponibili = [
+# Estrazione dei candidati idonei (escludendo l'assente e chi è occupato in classe)
+candidati_validi = [
     d
-    for d in docenti_istituto
-    if d != docente_assente and d not in docenti_occupati
+    for d in archivio_docenti_istituto
+    if d["nome"] != docente_assente and d["nome"] not in docenti_occupati
 ]
+
+# Applicazione dell'ordinamento gerarchico intelligente
+candidati_ordinati = ordina_candidati_sostituzione(
+    candidati_validi, plesso_selezionato
+)
 
 col1, col2 = st.columns(2)
 
@@ -141,33 +195,46 @@ with col1:
   st.markdown("### 🛑 Docenti Occupati (In Classe)")
   if docenti_occupati:
     st.error(
-        "I seguenti docenti sono già impegnati in cattedra in questa ora e"
-        f" non possono essere assegnati:\n- "
+        "I seguenti docenti sono impegnati in cattedra e non possono essere"
+        f" assegnati:\n- "
         + "\n- ".join(sorted(docenti_occupati))
     )
   else:
-    st.info("Nessun docente bloccato da impegni in classe in questa fascia.")
+    st.info(
+        "Nessun docente bloccato da impegni in classe in questa fascia oraria."
+    )
 
 with col2:
-  st.markdown("### ✅ Candidati Sostituti Disponibili")
+  st.markdown("### ✅ Candidati Sostituti (Ordinamento Gerarchico)")
   st.caption(
-      "Ordinati per gerarchia (Recuperi -> A disposizione -> Straordinari)"
+      "Priorità: 1) Recuperi | 2) Disp. Plesso | 3) Disp. Altro Plesso | 4)"
+      " Extra (per equità di carico)"
   )
 
-  if docenti_disponibili:
-    # Mostriamo la lista interattiva dei candidati
-    for idx, candidato in enumerate(sorted(docenti_disponibili), 1):
-      col_a, col_b = st.columns([3, 1])
-      with col_a:
+  if candidati_ordinati:
+    for idx, cand in enumerate(candidati_ordinati, 1):
+      # Badge visivo per evidenziare la categoria e lo storico
+      badge_colore = (
+          "🟢"
+          if cand["categoria"] == "Recupero"
+          else ("🔵" if "Plesso" in cand["categoria"] else "🟠")
+      )
+
+      c_a, c_b = st.columns([3, 1])
+      with c_a:
         st.write(
-            f"**{idx}. {candidato}** *(Disponibile - Stesso plesso o"
-            " trasferibile)*"
+            f"**{idx}. {cand['nome']}** {badge_colore}"
+            f" *{cand['categoria']}* | Plesso: {cand['plesso_origine']} |"
+            f" Storico: {cand['storico_sostituzioni']}h"
         )
-      with col_b:
-        if st.button("Assegna", key=f"asgna_{candidato}"):
+      with c_b:
+        if st.button("Assegna", key=f"assegna_{cand['nome']}"):
           st.success(
-              f"Assegnazione registrata: **{candidato}** sostituirà"
+              f"Assegnazione confermata: **{cand['nome']}** sostituirà"
               f" **{docente_assente}** ({ora_selezionata}ª ora)."
           )
   else:
-    st.warning("Nessun docente disponibile trovato per questa ora.")
+    st.warning(
+        "Nessun docente disponibile trovato in base ai filtri di orario e"
+        " plesso."
+    )
