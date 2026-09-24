@@ -15,10 +15,7 @@ st.title(
 # --- 1. MOTORE DI PARSING UFFICIALE DEI PDF ---
 @st.cache_data
 def estrai_orario_pdf(pdf_paths):
-  """Legge integralmente e senza filtri i PDF ufficiali dei tre plessi,
-
-  estraendo la matrice reale (Docente, Plesso, Giorno, Ora, Classe).
-  """
+  """Legge integralmente i PDF ufficiali ed estrae la matrice (Docente, Plesso, Giorno, Ora, Classe)."""
   database_orario = []
   giorni_standard = ["Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì"]
 
@@ -30,15 +27,10 @@ def estrai_orario_pdf(pdf_paths):
         for pagina in pdf.pages:
           tabelle = pagina.extract_tables()
           for tabella in tabelle:
-            # Analisi delle righe della tabella del PDF
             for riga in tabella:
               if not riga or all(not cella for cella in riga):
                 continue
-
-              # La prima colonna contiene solitamente il nome del docente
               docente_raw = riga[0].strip() if riga[0] else ""
-
-              # Filtriamo intestazioni o righe non valide
               if not docente_raw or docente_raw.upper() in [
                   "LUNEDI",
                   "MARTEDI",
@@ -50,24 +42,18 @@ def estrai_orario_pdf(pdf_paths):
                   "ORARIO",
               ]:
                 continue
-
               docente = docente_raw.upper()
 
-              # Scansione delle celle successive della riga (rappresentano le ore/giorni)
-              # Mappiamo l'indice della colonna all'ora e al giorno della settimana
               for idx_col, cella in enumerate(riga[1:], start=1):
                 if cella and cella.strip():
                   classe_estratta = cella.strip().upper()
-
-                  # Logica di stima giorno/ora basata sulla posizione della colonna nel tabulato ministeriale/scolastico
-                  # (Supponendo blocchi giornalieri o sequenziali di ore)
                   giorno_idx = (idx_col - 1) // 8
                   ora_num = ((idx_col - 1) % 8) + 1
-
-                  if giorno_idx < len(giorni_standard):
-                    giorno = giorni_standard[giorno_idx]
-                  else:
-                    giorno = "Lunedì"  # Fallback di sicurezza
+                  giorno = (
+                      giorni_standard[giorno_idx]
+                      if giorno_idx < len(giorni_standard)
+                      else "Lunedì"
+                  )
 
                   database_orario.append({
                       "Docente": docente,
@@ -76,9 +62,8 @@ def estrai_orario_pdf(pdf_paths):
                       "Ora": ora_num,
                       "Classe": classe_estratta,
                   })
-
     except Exception as e:
-      st.error(f"Errore critico nella lettura del file {path}: {e}")
+      st.error(f"Errore nella lettura del file {path}: {e}")
 
   return pd.DataFrame(
       database_orario, columns=["Docente", "Plesso", "Giorno", "Ora", "Classe"]
@@ -87,7 +72,6 @@ def estrai_orario_pdf(pdf_paths):
 
 @st.cache_data
 def carica_database_esterni():
-  """Carica i database separati per Recuperi e Sostegno da file CSV dedicati."""
   try:
     df_recuperi = (
         pd.read_csv("recuperi.csv")
@@ -119,14 +103,13 @@ df_orario = estrai_orario_pdf(pdf_files)
 df_recuperi, df_sostegno = carica_database_esterni()
 
 
-# --- 2. REGISTRO UNIFICATO DOCENTI DELL'ISTITUTO ---
+# --- 2. ELENCO DOCENTI DELL'ISTITUTO ---
 docenti_istituto = set()
 if not df_orario.empty and "Docente" in df_orario.columns:
   docenti_istituto.update(df_orario["Docente"].unique())
 if not df_sostegno.empty and "Docente" in df_sostegno.columns:
   docenti_istituto.update(df_sostegno["Docente"].unique())
 
-# Fallback estremo solo se i PDF non sono stati ancora caricati nella root di GitHub
 if not docenti_istituto:
   docenti_istituto = {
       "BELLANOVA",
@@ -143,20 +126,21 @@ if not docenti_istituto:
 list_docenti = sorted(list(docenti_istituto))
 
 
-# --- 3. PANNELLO LATERALE: PARAMETRI ---
-st.sidebar.header("🎯 Gestione Assenza")
+# --- 3. PANNELLO LATERALE (SELEZIONE DOCENTE E GIORNO) ---
+st.sidebar.header("🎯 Gestione Assenza Docente")
 docente_assente = st.sidebar.selectbox(
-    "Docente da sostituire (Assente)", list_docenti
+    "Seleziona il Docente Assente", list_docenti
 )
 giorno_selezionato = st.sidebar.selectbox(
-    "Giorno", ["Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì"]
+    "Giorno dell'assenza", ["Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì"]
 )
 
 usa_filtro_puntuale = st.sidebar.checkbox(
-    "⚙️ Cerca sostituto per un'ora specifica (modalità manuale)",
+    "⚙️ Forza ora specifica (Modalità manuale)",
     value=False,
     help=(
-        "Attiva per forzare la ricerca su una singola ora e plesso specifico."
+        "Se attivo, ignora l'orario automatico del docente e seleziona"
+        " un'ora/plesso specifico."
     ),
 )
 
@@ -166,22 +150,16 @@ if usa_filtro_puntuale:
       "Plesso", ["Cherasco", "Narzole", "Roreto"]
   )
   ora_selezionata = st.sidebar.slider("Ora", 1, 8, 1)
-  classe_selezionata = st.sidebar.text_input("Classe", value="1A").upper()
+  classe_selezionata = st.sidebar.text_input(
+      "Classe da coprire", value="1A"
+  ).upper()
 
 
-# --- 4. FUNZIONE DI ORDINAMENTO GERARCHICO ---
+# --- 4. LOGICA DI ORDINAMENTO GERARCHICO ---
 def valuta_candidati_e_ordina(
     candidati_disponibili, plesso_assenza, df_recuperi_ref
 ):
-  """Piramide delle priorità:
-
-  1. Recuperi (presenti in recuperi.csv)
-  2. Disponibilità nello stesso plesso
-  3. Disponibilità in altro plesso
-  4. Extra / Straordinari a rotazione
-  """
   lista_valutata = []
-
   for doc in candidati_disponibili:
     ha_recupero = False
     if not df_recuperi_ref.empty and "Docente" in df_recuperi_ref.columns:
@@ -203,18 +181,21 @@ def valuta_candidati_e_ordina(
         "plesso_origine": plesso_assenza,
         "storico": 0,
     })
-
   return sorted(lista_valutata, key=lambda c: (c["peso_cat"], c["storico"]))
 
 
-# --- 5. CORPO PRINCIPALE DELL'APPLICAZIONE ---
+# --- 5. CORPO PRINCIPALE ---
 if not usa_filtro_puntuale:
   st.subheader(
-      f"📋 Piano Sostituzioni Giornaliero per: {docente_assente} | Giorno:"
-      f" {giorno_selezionato}"
+      f"📋 Piano Sostituzioni per il docente: **{docente_assente}** — Giorno:"
+      f" **{giorno_selezionato}**"
+  )
+  st.caption(
+      "Il sistema ha individuato automaticamente le ore di lezione scoperte"
+      " dai tabulati dei plessi per questo docente."
   )
 
-  # Interrogazione reale del database estratto dai PDF in base a docente e giorno
+  # Estrazione automatica delle ore in cui il docente assente ha lezione
   if not df_orario.empty and "Docente" in df_orario.columns:
     ore_docente_df = df_orario[
         (df_orario["Docente"] == docente_assente)
@@ -225,9 +206,9 @@ if not usa_filtro_puntuale:
 
   if ore_docente_df.empty:
     st.warning(
-        f"Nessuna ora di lezione trovata nei PDF per **{docente_assente}** nella"
-        f" giornata di **{giorno_selezionato}**. Verifica che il nome corrisponda"
-        " esattamente a quello riportato nel tabulato del plesso."
+        f"Nessuna ora registrata nei PDF per **{docente_assente}`} nella"
+        f" giornata di **{giorno_selezionato}**. (Verifica l'esatta ortografia"
+        " del nome rispetto al tabulato ufficiale)."
     )
   else:
     ore_docente_df = ore_docente_df.sort_values(by="Ora")
@@ -238,16 +219,17 @@ if not usa_filtro_puntuale:
       plesso_i = row["Plesso"]
 
       with st.expander(
-          f"⏰ {ora_i}ª Ora — Classe: {classe_i} ({plesso_i})", expanded=True
+          f"⏰ {ora_i}ª Ora — Classe: {classe_i} (Plesso: {plesso_i})",
+          expanded=True,
       ):
-        # Incrocio con il database orario per individuare chi è già occupato in cattedra in quell'ora
+        # Individuazione docenti occupati in cattedra in quella stessa ora in tutto l'istituto
         docenti_occupati = set()
         if not df_orario.empty and "Ora" in df_orario.columns:
-          occupati_df = df_orario[
+          occ_df = df_orario[
               (df_orario["Giorno"] == giorno_selezionato)
               & (df_orario["Ora"] == ora_i)
           ]
-          docenti_occupati = set(occupati_df["Docente"].unique())
+          docenti_occupati = set(occ_df["Docente"].unique())
 
         candidati_liberi = [
             d
@@ -260,15 +242,15 @@ if not usa_filtro_puntuale:
 
         cols = st.columns([1, 2])
         with cols[0]:
-          st.markdown("**🛑 Occupati in cattedra:**")
+          st.markdown("**🛑 Docenti Occupati in classe:**")
           if docenti_occupati:
             st.write(", ".join(sorted(docenti_occupati)))
           else:
-            st.write("Nessun blocco attivo.")
+            st.write("Nessun blocco.")
 
         with cols[1]:
           st.markdown(
-              "**✅ Scegli il Sostituto (1° ottimale, oppure apri per il"
+              "**✅ Sostituto proposto (1° ottimale / Apri per il"
               " successivo):**"
           )
           if candidati_ordinati:
@@ -278,27 +260,28 @@ if not usa_filtro_puntuale:
             ]
 
             scelta_tendina = st.selectbox(
-                "Elenco ordinato per gerarchia:",
+                "Seleziona sostituto:",
                 opzioni_menu,
-                key=f"sel_{ora_i}_{classe_i}_{plesso_i}_{docente_assente}",
+                key=f"sel_{docente_assente}_{giorno_selezionato}_{ora_i}_{classe_i}",
             )
 
             if st.button(
                 "Conferma Assegnazione",
-                key=f"btn_{ora_i}_{classe_i}_{docente_assente}",
+                key=f"btn_{docente_assente}_{giorno_selezionato}_{ora_i}_{classe_i}",
             ):
               assegnato = scelta_tendina.split(" (")[0]
               st.success(
-                  f"Assegnazione salvata: **{assegnato}** coprirà la"
-                  f" **{ora_i}ª ora** in **{classe_i}** ({plesso_i})."
+                  f"Assegnazione confermata: **{assegnato}** coprirà la"
+                  f" **{ora_i}ª ora** in **{classe_i}** ({plesso_i})"
+                  f" sostituendo **{docente_assente}**."
               )
           else:
-            st.warning("Nessun docente disponibile in questa fascia oraria.")
+            st.warning("Nessun docente disponibile in questa ora.")
 
 else:
-  # MODALITÀ PUNTUALE
+  # MODALITÀ PUNTUALE MANUALE
   st.subheader(
-      f"📋 Gestione Supplenza Puntuale: {docente_assente} | Classe:"
+      f"📋 Gestione Supplenza Manuale: {docente_assente} | Classe:"
       f" {classe_selezionata} ({plesso_selezionato} | {giorno_selezionato} -"
       f" {ora_selezionata}ª Ora)"
   )
@@ -328,14 +311,14 @@ else:
     scelta_p = st.selectbox(
         "Seleziona il sostituto dalla lista gerarchica:",
         opzioni_puntuali,
-        key="sel_punt_def",
+        key="sel_punt_manuale",
     )
 
-    if st.button("Conferma Assegnazione Puntuale", key="btn_punt_def"):
+    if st.button("Conferma Assegnazione Manuale", key="btn_punt_manuale"):
       assegnato_p = scelta_p.split(" (")[0]
       st.success(
           f"Assegnato **{assegnato_p}** alla classe **{classe_selezionata}**"
-          f" ({ora_selezionata}ª ora)."
+          f" ({ora_selezionata}ª ora) in sostituzione di **{docente_assente}**."
       )
   else:
     st.warning("Nessun docente disponibile.")
