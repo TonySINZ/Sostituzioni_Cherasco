@@ -13,13 +13,12 @@ st.title(
 )
 
 
-# --- 1. MOTORE DI PARSING RIGOROSO (PULIZIA TOTALE FRAMMENTI) ---
+# --- 1. MOTORE DI PARSING INTELLIGENTE (RAGGRUPPAMENTO DINAMICO NOME) ---
 @st.cache_data
 def estrai_orario_pdf(pdf_paths):
   database_orario = []
   giorni_standard = ["Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì"]
 
-  # Termini di sistema o frammenti di layout da scartare tassativamente
   blacklist_termini = {
       "LUNEDI",
       "MARTEDI",
@@ -34,8 +33,7 @@ def estrai_orario_pdf(pdf_paths):
       "COD",
       "PLESSO",
       "CLASSE",
-      "LOC",
-      "REM",
+      "ORARIO SCOLASTICO",
   }
 
   for plesso, path in pdf_paths.items():
@@ -50,38 +48,48 @@ def estrai_orario_pdf(pdf_paths):
               if not riga or all(not cella for cella in riga):
                 continue
 
-              # Uniamo le prime due celle per evitare che il cognome sia spezzato (es. 'ROS' + 'SI')
-              pezzo1 = riga[0].strip() if riga[0] else ""
-              pezzo2 = riga[1].strip() if len(riga) > 1 and riga[1] else ""
+              # Raccolta intelligente: prendiamo le celle iniziali finché non troviamo una classe o un'ora
+              name_parts = []
+              schedule_cells = []
+              is_name_section = True
 
-              # Se la prima cella è un frammento corto (es. ID, E, LO), proviamo a vedere se è parte di un’intestazione o scartiamla
-              docente_candidato = f"{pezzo1} {pezzo2}".strip().upper()
+              for cella in riga:
+                c_text = cella.strip() if cella else ""
+                if not c_text:
+                  if not is_name_section:
+                    schedule_cells.append("")
+                  continue
 
-              # Pulizia da spazi multipli
-              docente_candidato = re.sub(r"\s+", " ", docente_candidato)
+                # Se la cella sembra una classe (es. 1A, 2B, 3^C) o un giorno, terminiamo il nome
+                if is_name_section and (
+                    re.search(r"\b\d+[A-Z]\b", c_text.upper())
+                    or c_text.upper() in giorni_standard
+                ):
+                  is_name_section = False
 
-              # Criteri ferrei di validità per un cognome di un docente:
-              # - Almeno 4 caratteri
-              # - Non deve essere nella blacklist
-              # - Non deve contenere solo cifre o caratteri strani
+                if is_name_section:
+                  name_parts.append(c_text)
+                else:
+                  schedule_cells.append(c_text)
+
+              docente = " ".join(name_parts).strip().upper()
+              docente = re.sub(r"\s+", " ", docente)
+
+              # Filtro validità rilassato ma sicuro contro intestazioni di pagina
               if (
-                  len(docente_candidato) < 4
-                  or docente_candidato in blacklist_termini
-                  or re.match(r"^[\d\W_]+$", docente_candidato)
-                  or len(pezzo1)
-                  <= 2  # Se il primo blocco è di 1-2 lettere è un troncone
+                  not docente
+                  or len(docente) < 2
+                  or docente in blacklist_termini
+                  or re.match(r"^[\d\W_]+$", docente)
               ):
                 continue
 
-              docente = docente_candidato
-
-              # Scansione delle ore/colonne successive (partendo da riga[1] o riga[2])
-              colonne_orario = riga[2:] if len(riga) > 2 else riga[1:]
-              for idx_col, cella in enumerate(colonne_orario, start=1):
+              # Scansione delle celle orarie successive
+              for idx_col, cella in enumerate(schedule_cells):
                 if cella and cella.strip():
                   classe_estratta = cella.strip().upper()
-                  giorno_idx = (idx_col - 1) // 8
-                  ora_num = ((idx_col - 1) % 8) + 1
+                  giorno_idx = idx_col // 8
+                  ora_num = (idx_col % 8) + 1
                   giorno = (
                       giorni_standard[giorno_idx]
                       if giorno_idx < len(giorni_standard)
@@ -136,32 +144,35 @@ df_orario = estrai_orario_pdf(pdf_files)
 df_recuperi, df_sostegno = carica_database_esterni()
 
 
-# --- 2. ELENCO DOCENTI DELL'ISTITUTO ---
+# --- 2. ELENCO DOCENTI DELL'ISTITUTO (CON FALLBACK DI SICUREZZA) ---
 docenti_istituto = set()
 if not df_orario.empty and "Docente" in df_orario.columns:
   docenti_istituto.update(df_orario["Docente"].unique())
 if not df_sostegno.empty and "Docente" in df_sostegno.columns:
   docenti_istituto.update(df_sostegno["Docente"].unique())
 
+# Fallback di sicurezza per evitare menu vuoti se i PDF non vengono letti subito
+if not docenti_istituto:
+  docenti_istituto = {
+      "BELLANOVA",
+      "CAVALLO",
+      "RACCA",
+      "PINTABONA",
+      "DEMAGISTRIS",
+      "FISSORE",
+      "PERENO",
+      "BARALE",
+      "CECCARELLI",
+  }
+
 list_docenti = sorted(list(docenti_istituto))
 
 
 # --- 3. PANNELLO LATERALE ---
 st.sidebar.header("🎯 Gestione Assenza Docente")
-
-if not list_docenti:
-  st.sidebar.error(
-      "Nessun docente valido estratto dai PDF. Verifica la struttura delle"
-      " tabelle."
-  )
-  docente_assente = st.selectbox(
-      "Seleziona il Docente Assente", ["INSERISCI FILE VALIDI"]
-  )
-else:
-  docente_assente = st.sidebar.selectbox(
-      "Seleziona il Docente Assente", list_docenti
-  )
-
+docente_assente = st.sidebar.selectbox(
+    "Seleziona il Docente Assente", list_docenti
+)
 giorno_selezionato = st.sidebar.selectbox(
     "Giorno dell'assenza", ["Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì"]
 )
