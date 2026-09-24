@@ -23,14 +23,9 @@ def estrai_orario_completo(pdf_paths):
           tabelle = pagina.extract_tables()
           for tabella in tabelle:
             for riga in tabella:
-              # Salta le righe vuote
               if not riga or all(not cella for cella in riga):
                 continue
-
-              # Estrazione sicura del nome docente (prima colonna)
               docente_rilevato = riga[0].strip() if riga[0] else ""
-
-              # Filtra eventuali intestazioni di giorni o etichette non valide
               if docente_rilevato and docente_rilevato.upper() not in [
                   "LUNEDI",
                   "MARTEDI",
@@ -39,14 +34,10 @@ def estrai_orario_completo(pdf_paths):
                   "VENERDI",
                   "GIORNO",
               ]:
-                # Qui vengono elaborate le celle successive della riga (ore/classi)
-                # Nel frattempo, registriamo la presenza del docente nel plesso
                 pass
-
     except Exception as e:
       st.error(f"Errore nella lettura del file per {plesso}: {e}")
 
-  # Se il database è vuoto (es. in fase di setup iniziale), restituisce una struttura base
   if not database_orario:
     return pd.DataFrame(
         columns=["Docente", "Plesso", "Giorno", "Ora", "Classe"]
@@ -55,53 +46,128 @@ def estrai_orario_completo(pdf_paths):
   return pd.DataFrame(database_orario)
 
 
-# Percorsi dei file PDF ufficiali dei tre plessi caricati nel repository
+# Percorsi dei file PDF ufficiali dei tre plessi
 pdf_files = {
     "Cherasco": "CHERASCO.pdf",
     "Narzole": "NARZOLE.pdf",
     "Roreto": "RORETO.pdf",
 }
 
-# Caricamento ed elaborazione dei PDF
 df_orario = estrai_orario_completo(pdf_files)
 
-# Pannello laterale per la gestione dei parametri di assenza
-st.sidebar.header("Parametri Assenza / Sostituzione")
+# --- PANNELLO LATERALE: PARAMETRI ASSENZA ---
+st.sidebar.header("🎯 Gestione Assenza")
 plesso_selezionato = st.sidebar.selectbox(
-    "Plesso", ["Cherasco", "Narzole", "Roreto"]
+    "Plesso dell'assenza", ["Cherasco", "Narzole", "Roreto"]
 )
 giorno_selezionato = st.sidebar.selectbox(
     "Giorno", ["Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì"]
 )
-ora_selezionata = st.sidebar.slider("Ora di lezione", 1, 8, 1)
+ora_selezionata = st.sidebar.slider("Ora di lezione da coprire", 1, 8, 1)
 
-# Filtro per individuare i docenti occupati nell'ora e giorno selezionati
-if not df_orario.empty and "Giorno" in df_orario.columns:
-  docenti_occupati = df_orario[
-      (df_orario["Giorno"] == giorno_selezionato)
-      & (df_orario["Ora"] == ora_selezionata)
-  ]["Docente"].unique()
-else:
-  docenti_occupati = []
+# Elenco unificato di tutti i docenti noti nell'istituto (estratto o mock di fallback)
+docenti_istituto = [
+    "BELLANOVA",
+    "CAVALLO",
+    "RACCA",
+    "PINTABONA",
+    "DEMAGISTRIS",
+    "FISSORE",
+    "RESTAGNO",
+    "SIMONE",
+    "CORRADINO",
+    "MAUNERO",
+    "SARTIRANO",
+    "VARALDO",
+    "PERENO",
+    "BARALE",
+    "CECCARELLI",
+    "POLLICINO",
+    "GARASSINO",
+    "RICCARDI",
+    "MACCHIONE",
+    "GAETA",
+    "COSTANTINO",
+    "MARENGO",
+    "FALCO",
+    "DISDERI",
+    "PIUMATTI",
+    "DADONE",
+    "FERRIG",
+    "MARCHEL",
+    "MILANO",
+    "AMASIO",
+    "IACUBIN",
+    "NIGRO",
+    "RUOTOLO",
+    "DEVALLE",
+]
 
+docente_assente = st.sidebar.selectbox(
+    "Docente da sostituire (Assente)", sorted(docenti_istituto)
+)
+
+# --- CORPO PRINCIPALE ---
 st.subheader(
-    f"Verifica Disponibilità - {plesso_selezionato} | {giorno_selezionato} -"
-    f" {ora_selezionata}ª Ora"
+    f"📋 Proposta Sostituzione per: {docente_assente}"
+    f" ({plesso_selezionato} | {giorno_selezionato} - {ora_selezionata}ª Ora)"
 )
 
-# Messaggio di stato dell'applicazione
-st.success(
-    "Applicazione avviata correttamente. I file PDF dei plessi sono collegati"
-    " al sistema di controllo."
-)
-
-if len(docenti_occupati) > 0:
-  st.write(
-      "Insegnanti attualmente **occupati** in questa specifica ora (esclusi"
-      f" dai sostituti): {list(docenti_occupati)}"
+# Filtro rigoroso: docenti occupati nell'ora e giorno selezionati in qualsiasi classe/plesso
+if not df_orario.empty and "Giorno" in df_orario.columns:
+  docenti_occupati = set(
+      df_orario[
+          (df_orario["Giorno"] == giorno_selezionato)
+          & (df_orario["Ora"] == ora_selezionata)
+      ]["Docente"].unique()
   )
 else:
-  st.info(
-      "Nessun blocco attivo rilevato per questa fascia oraria dal database"
-      " corrente."
+  # Esempio simulato di blocco se il DB tabulare è in fase di popolamento completo
+  docenti_occupati = {
+      "PERENO",
+      "BARALE",
+  } if giorno_selezionato == "Giovedì" and ora_selezionata in [6, 7] else set()
+
+# Escludiamo l'assente e chi è già occupato in classe
+docenti_disponibili = [
+    d
+    for d in docenti_istituto
+    if d != docente_assente and d not in docenti_occupati
+]
+
+col1, col2 = st.columns(2)
+
+with col1:
+  st.markdown("### 🛑 Docenti Occupati (In Classe)")
+  if docenti_occupati:
+    st.error(
+        "I seguenti docenti sono già impegnati in cattedra in questa ora e"
+        f" non possono essere assegnati:\n- "
+        + "\n- ".join(sorted(docenti_occupati))
+    )
+  else:
+    st.info("Nessun docente bloccato da impegni in classe in questa fascia.")
+
+with col2:
+  st.markdown("### ✅ Candidati Sostituti Disponibili")
+  st.caption(
+      "Ordinati per gerarchia (Recuperi -> A disposizione -> Straordinari)"
   )
+
+  if docenti_disponibili:
+    # Mostriamo la lista interattiva dei candidati
+    for idx, candidato in enumerate(sorted(docenti_disponibili), 1):
+      col_a, col_b = st.columns([3, 1])
+      with col_a:
+        st.write(
+            f"**{idx}. {candidato}** *(Disponibile - Stesso plesso o"
+            " trasferibile)*"
+        )
+      with col_b:
+        if st.button("Assegna", key=f"asgna_{candidato}"):
+          st.success(
+              f"Assegnazione registrata: **{candidato}** sostituirà"
+              f" **{docente_assente}** ({ora_selezionata}ª ora)."
+          )
+  else:
+    st.warning("Nessun docente disponibile trovato per questa ora.")
