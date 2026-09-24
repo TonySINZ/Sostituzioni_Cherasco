@@ -206,7 +206,7 @@ if not usa_filtro_puntuale:
 
   if ore_docente_df.empty:
     st.warning(
-        f"Nessuna ora registrata nei PDF per **{docente_assente}`} nella"
+        f"Nessuna ora registrata nei PDF per **{docente_assente}** nella"
         f" giornata di **{giorno_selezionato}**. (Verifica l'esatta ortografia"
         " del nome rispetto al tabulato ufficiale)."
     )
