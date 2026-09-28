@@ -1,7 +1,6 @@
 import os
 import re
 import pandas as pd
-import pdfplumber
 import streamlit as st
 
 st.set_page_config(
@@ -13,98 +12,101 @@ st.title(
 )
 
 
-# --- 1. MOTORE DI PARSING INTELLIGENTE (RAGGRUPPAMENTO DINAMICO NOME) ---
+# --- 1. MOTORE DI PARSING DA FILE EXCEL ---
 @st.cache_data
-def estrai_orario_pdf(pdf_paths):
+def estrai_orario_excel(file_path):
   database_orario = []
   giorni_standard = ["Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì"]
 
-  blacklist_termini = {
-      "LUNEDI",
-      "MARTEDI",
-      "MERCOLEDI",
-      "GIOVEDI",
-      "VENERDI",
-      "GIORNO",
-      "DOCENTE",
-      "ORARIO",
-      "ID",
-      "IDE",
-      "COD",
-      "PLESSO",
-      "CLASSE",
-      "ORARIO SCOLASTICO",
-  }
+  if not os.path.exists(file_path):
+    return pd.DataFrame(
+        columns=["Docente", "Plesso", "Giorno", "Ora", "Classe"]
+    )
 
-  for plesso, path in pdf_paths.items():
-    if not os.path.exists(path):
-      continue
-    try:
-      with pdfplumber.open(path) as pdf:
-        for pagina in pdf.pages:
-          tabelle = pagina.extract_tables()
-          for tabella in tabelle:
-            for riga in tabella:
-              if not riga or all(not cella for cella in riga):
-                continue
+  try:
+    xls = pd.ExcelFile(file_path)
+    for plesso in xls.sheet_names:
+      df = pd.read_excel(xls, sheet_name=plesso, header=None)
 
-              # Raccolta intelligente: prendiamo le celle iniziali finché non troviamo una classe o un'ora
-              name_parts = []
-              schedule_cells = []
-              is_name_section = True
+      # Identifichiamo la riga delle classi (solitamente indice 3 o 2)
+      # Cerchiamo la riga che contiene i nomi delle classi (es. 1A, 2A, 1C...)
+      row_classi_idx = None
+      for idx in range(min(5, len(df))):
+        row_vals = [str(v) for v in df.iloc[idx].values if pd.notna(v)]
+        if any(
+            re.search(r"\d+[A-Z]", v.strip().upper()) for v in row_vals
+        ):
+          row_classi_idx = idx
+          break
 
-              for cella in riga:
-                c_text = cella.strip() if cella else ""
-                if not c_text:
-                  if not is_name_section:
-                    schedule_cells.append("")
-                  continue
+      if row_classi_idx is None:
+        continue
 
-                # Se la cella sembra una classe (es. 1A, 2B, 3^C) o un giorno, terminiamo il nome
-                if is_name_section and (
-                    re.search(r"\b\d+[A-Z]\b", c_text.upper())
-                    or c_text.upper() in giorni_standard
-                ):
-                  is_name_section = False
+      classi_map = {}
+      for col_idx, val in enumerate(df.iloc[row_classi_idx]):
+        if pd.notna(val):
+          c_text = str(val).strip().upper()
+          # Pulizia eventuale da descrizioni extra
+          c_text = re.sub(
+              r"^(SCUOLA.*)", "", c_text
+          )  # Evita intestazioni lunghe
+          if c_text and len(c_text) < 10:
+            classi_map[col_idx] = c_text
 
-                if is_name_section:
-                  name_parts.append(c_text)
-                else:
-                  schedule_cells.append(c_text)
+      # Scansione delle righe successive per giorno e ora
+      giorno_corrente = "Lunedì"
+      giorno_idx_counter = 0
 
-              docente = " ".join(name_parts).strip().upper()
-              docente = re.sub(r"\s+", " ", docente)
+      for r_idx in range(row_classi_idx + 1, len(df)):
+        riga = df.iloc[r_idx]
+        cell_giorno = riga.iloc[0] if len(riga) > 0 and pd.notna(riga.iloc[0]) else None
+        cell_ora = riga.iloc[1] if len(riga) > 1 and pd.notna(riga.iloc[1]) else None
 
-              # Filtro validità rilassato ma sicuro contro intestazioni di pagina
-              if (
-                  not docente
-                  or len(docente) < 2
-                  or docente in blacklist_termini
-                  or re.match(r"^[\d\W_]+$", docente)
-              ):
-                continue
+        if cell_giorno:
+          g_text = str(cell_giorno).strip().upper()
+          for g in giorni_standard:
+            if g.upper() in g_text:
+              giorno_corrente = g
+              break
 
-              # Scansione delle celle orarie successive
-              for idx_col, cella in enumerate(schedule_cells):
-                if cella and cella.strip():
-                  classe_estratta = cella.strip().upper()
-                  giorno_idx = idx_col // 8
-                  ora_num = (idx_col % 8) + 1
-                  giorno = (
-                      giorni_standard[giorno_idx]
-                      if giorno_idx < len(giorni_standard)
-                      else "Lunedì"
+        if cell_ora:
+          ora_text = str(cell_ora).strip()
+          # Estrazione numero ora (es. 1^, 1, ecc.)
+          match_ora = re.search(r"(\d+)", ora_text)
+          if match_ora:
+            ora_num = int(match_ora.group(1))
+
+            # Leggiamo le celle delle classi per questa ora
+            for col_idx, classe_nome in classi_map.items():
+              if col_idx < len(riga) and pd.notna(riga.iloc[col_idx]):
+                cell_content = str(riga.iloc[col_idx]).strip()
+                if cell_content and cell_content.upper() != "NAN":
+                  # Estrazione pulita del nome docente (rimuovendo la materia es. "ROSSI ita" -> "ROSSI")
+                  # Di solito il formato è "COGNOME materia" oppure "COGNOME/Altro"
+                  docente_raw = cell_content.split("/")[
+                      0
+                  ]  # Prende il primo se c'è compresenza
+                  docente_raw = re.sub(
+                      r"\s+(ita|mat|geo|sto|arte|mus|moto|tec|rel|ing|fra|ted|tecno.*|sost.*)$",
+                      "",
+                      docente_raw,
+                      flags=re.IGNORECASE,
                   )
+                  docente_pulito = docente_raw.strip().upper()
 
-                  database_orario.append({
-                      "Docente": docente,
-                      "Plesso": plesso,
-                      "Giorno": giorno,
-                      "Ora": ora_num,
-                      "Classe": classe_estratta,
-                  })
-    except Exception as e:
-      st.error(f"Errore nella lettura del file {path}: {e}")
+                  if (
+                      len(docente_pulito) > 1
+                      and docente_pulito not in ["UNNAMED", "NAN"]
+                  ):
+                    database_orario.append({
+                        "Docente": docente_pulito,
+                        "Plesso": plesso.capitalize(),
+                        "Giorno": giorno_corrente,
+                        "Ora": ora_num,
+                        "Classe": classe_nome,
+                    })
+  except Exception as e:
+    st.error(f"Errore nella lettura del file Excel: {e}")
 
   return pd.DataFrame(
       database_orario, columns=["Docente", "Plesso", "Giorno", "Ora", "Classe"]
@@ -134,45 +136,36 @@ def carica_database_esterni():
   return df_recuperi, df_sostegno
 
 
-pdf_files = {
-    "Cherasco": "CHERASCO.pdf",
-    "Narzole": "NARZOLE.pdf",
-    "Roreto": "RORETO.pdf",
-}
+# Nome del file excel caricato
+excel_file_path = "ORARIO con SOSTEGNO.xls"
 
-df_orario = estrai_orario_pdf(pdf_files)
+df_orario = estrai_orario_excel(excel_file_path)
 df_recuperi, df_sostegno = carica_database_esterni()
 
 
-# --- 2. ELENCO DOCENTI DELL'ISTITUTO (CON FALLBACK DI SICUREZZA) ---
+# --- 2. ELENCO DOCENTI DELL'ISTITUTO ---
 docenti_istituto = set()
 if not df_orario.empty and "Docente" in df_orario.columns:
   docenti_istituto.update(df_orario["Docente"].unique())
 if not df_sostegno.empty and "Docente" in df_sostegno.columns:
   docenti_istituto.update(df_sostegno["Docente"].unique())
 
-# Fallback di sicurezza per evitare menu vuoti se i PDF non vengono letti subito
-if not docenti_istituto:
-  docenti_istituto = {
-      "BELLANOVA",
-      "CAVALLO",
-      "RACCA",
-      "PINTABONA",
-      "DEMAGISTRIS",
-      "FISSORE",
-      "PERENO",
-      "BARALE",
-      "CECCARELLI",
-  }
-
 list_docenti = sorted(list(docenti_istituto))
 
 
 # --- 3. PANNELLO LATERALE ---
 st.sidebar.header("🎯 Gestione Assenza Docente")
-docente_assente = st.sidebar.selectbox(
-    "Seleziona il Docente Assente", list_docenti
-)
+
+if not list_docenti:
+  st.sidebar.error("Nessun docente trovato nel file Excel.")
+  docente_assente = st.sidebar.selectbox(
+      "Seleziona il Docente Assente", ["FILE VUOTO"]
+  )
+else:
+  docente_assente = st.sidebar.selectbox(
+      "Seleziona il Docente Assente", list_docenti
+  )
+
 giorno_selezionato = st.sidebar.selectbox(
     "Giorno dell'assenza", ["Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì"]
 )
@@ -235,8 +228,8 @@ if not usa_filtro_puntuale:
 
   if ore_docente_df.empty:
     st.warning(
-        f"Nessuna ora registrata nei PDF per **{docente_assente}** nella"
-        f" giornata di **{giorno_selezionato}**."
+        f"Nessuna ora registrata per **{docente_assente}** nella giornata di"
+        f" **{giorno_selezionato}**."
     )
   else:
     ore_docente_df = ore_docente_df.sort_values(by="Ora")
